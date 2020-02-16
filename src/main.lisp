@@ -1,6 +1,6 @@
 (defpackage run
   (:use :cl :series)
-  (:export :run :text :stream)
+  (:export :run :text :stream))
 (in-package :run)
 
 (defun run (first-command &rest commands &aux last-process)
