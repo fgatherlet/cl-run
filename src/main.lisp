@@ -1,6 +1,6 @@
 (defpackage run
   (:use :cl :series)
-  (:export :run :text :stream))
+  (:export :run :to-text :to-stream))
 (in-package :run)
 
 (defun run (first-command &rest commands &aux last-process)
@@ -16,10 +16,10 @@
   (when input-process (setq input-stream (uiop:process-info-output input-process)))
   (uiop:launch-program command :input input-stream :output :stream))
 
-(defun text (process)
+(defun to-text (process)
   (collect 'string (scan-stream (uiop:process-info-output process) #'read-char)))
 
-(defun stream (process)
+(defun to-stream (process)
   (uiop:process-info-output process))
 
 (defun logd (&rest args)

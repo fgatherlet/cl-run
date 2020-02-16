@@ -6,15 +6,15 @@ This is simple and thin `run-program` wrapper.
 
 ```
 $ ros install fgatherlet/cl-run
-$ ros run -Q cl-run
-* (run:text (run:run "ls" "sort" (list "tr" "'[a-z]'" "'[A-Z]'")))
+$ ros run -s run
+(run:to-text (run:run "ls" "sort" (list "tr" "'[a-z]'" "'[A-Z]'")))
 ;; print result of execution. similar to shell script `ls | sort | tr '[a-z]' '[A-Z]'
 
-* (series:collect-file "/tmp/result.txt"
-    (series:scan-stream
-      (run:stream (run:run "ls" "sort" (list "tr" "'[a-z]'" "'[A-Z]'")))
-      #'read-char)
-    #'write-char)
+(let ((str (run:to-stream (run:run "ls" "sort" (list "tr" "'[a-z]'" "'[A-Z]'")))))
+  (with-open-file (os "/tmp/result" :direction :output :if-exists :supersede)
+    (series:collect-stream os
+      (series:scan-stream str #'read-char)
+    #'write-char)))
 ;; like shell redirection.
 ```
 
