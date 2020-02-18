@@ -6,7 +6,7 @@ This is simple and thin `run-program` wrapper.
 
 ```
 $ ros install fgatherlet/cl-run
-$ ros run -s run
+$ ros -s run run
 (run:to-text (run:run "ls" "sort" (list "tr" "'[a-z]'" "'[A-Z]'")))
 ;; print result of execution. similar to shell script `ls | sort | tr '[a-z]' '[A-Z]'
 
