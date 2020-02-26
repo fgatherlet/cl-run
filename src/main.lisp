@@ -1,5 +1,7 @@
 ;;(in-package :scratch)
 ;;(slurp :string (run "ls" '("sort" "-r")))
+(ql:quickload :run)
+(run:run "ls")
 
 (defpackage run
   (:use :cl :series)
@@ -23,7 +25,7 @@
 (defun run% (command in)
   (check-type in (or stream null))
   (unless (listp command) (setq command (list command)))
-  (uiop:process-info-output (uiop:launch-program command :input in :output :stream)))
+  (uiop:process-info-output (uiop:launch-program command :input in :output :stream :directory *default-pathname-defaults*)))
 
 (run% "ls" nil)
 
