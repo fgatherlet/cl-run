@@ -1,33 +1,52 @@
-;;(in-package :scratch)
-;;(slurp :string (run "ls" '("sort" "-r")))
-(ql:quickload :run)
-(run:run "ls")
-
 (defpackage run
   (:use :cl :series)
   (:export
+
+   :pipe
    :run
+
    :to-stream
    :slurp
    :cwd
+   :cd
    #+sbcl :make-pipe-stream
    ))
 (in-package :run)
 
-(defun run (first-command &rest commands &aux last-process-out)
+(defun pipe (first-command &rest commands
+            &aux
+              last-process-info
+              last-process-out)
   (labels ((rec (commands)
-             (setq last-process-out (run% (car commands) last-process-out))
+             (multiple-value-setq (last-process-out last-process-info)
+               (pipe1 last-process-out (car commands)))
              (when (cdr commands)
                (rec (cdr commands)))))
-    (rec (cons first-command commands))
-    last-process-out))
+    (rec (cons first-command commands)))
+  (values last-process-out last-process-info))
 
-(defun run% (command in)
+(defun run (first-command &rest commands
+            &aux
+              last-process-info
+              last-process-out)
+  (labels ((rec (commands)
+             (multiple-value-setq (last-process-out last-process-info)
+               (pipe1 nil (car commands)))
+             ;; synchronize. maybe should use `uiop:run-program`.
+             (when last-process-info (uiop:wait-process last-process-info))
+             (when (cdr commands)
+               (rec (cdr commands)))))
+    (rec (cons first-command commands)))
+  (values last-process-out last-process-info))
+
+(defun pipe1 (in command)
   (check-type in (or stream null))
+  (when (streamp command)
+    (return-from pipe1 (values command nil)))
   (unless (listp command) (setq command (list command)))
-  (uiop:process-info-output (uiop:launch-program command :input in :output :stream :directory *default-pathname-defaults*)))
-
-(run% "ls" nil)
+  (let* ((proc-info (uiop:launch-program command :input in :output :stream :directory *default-pathname-defaults*))
+         (proc-out (uiop:process-info-output proc-info)))
+    (values proc-out proc-info)))
 
 (defun to-stream (process)
   (uiop:process-info-output process))
@@ -49,7 +68,11 @@
 (defsetf cwd () (dir)
   `(let ((,dir (truename ,dir)))
      (setq *default-pathname-defaults* ,dir)
-     (uiop:chdir ,dir)))
+     (uiop:chdir ,dir)
+     ,dir))
+(defun cd (dir)
+  "Syntax sugar for (setf (cwd) dir)"
+  (setf (cwd) dir))
 
 (defun walk (dir fn) (error "wip"))
 
