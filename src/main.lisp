@@ -1,11 +1,8 @@
 (defpackage run
   (:use :cl :series)
   (:export
+   :yarn
 
-   :pipe
-   :run
-
-   :to-stream
    :slurp
    :cwd
    :cd
@@ -44,14 +41,18 @@
 (defgeneric task-output (task))
 (defgeneric task-wait (task))
 
-;;;;
+(defmethod task-wait ((task t))
+  ;; do nothing
+  )
+
+;;;; process
 
 (defmethod task-output ((task uiop/launch-program::process-info))
   (uiop:process-info-output task))
 (defmethod task-wait ((task uiop/launch-program::process-info))
   (uiop:wait-process task))
 
-;;;;
+;;;; thread
 
 (defmethod task-output ((task thread-task))
   (slot-value task 'output))
@@ -80,43 +81,56 @@
     ;; bt:*default-special-bindings*
     task))
 
+;;(yarn "ls" "cat" 
 
-(defun pipe (first-command &rest commands
+(defun yarn1 (in command)
+  ;;(check-type in (or task null))
+  
+  (when (eql :i command)
+    ;; wait and ignore input.
+    (task-wait in)
+    (return-from yarn1 nil))
+  
+  ;; already yarned.
+  (when (typep command 'task) (return-from yarn1 command))
+  
+  ;;(unless in (setq in *standard-input*))
+  
+  (let (in-stream)
+    (if in
+        (setq in-stream (task-output in))
+      (setq in-stream nil))
+    
+    ;; thread.
+    (when (functionp command)
+      (return-from yarn1 (make-thread-task command :input in-stream)))
+    
+    ;; process.
+    (logd "aaa")
+    (unless (listp command) (setq command (list command)))
+    (logd "bbb")
+    (let* ((proc-info (uiop:launch-program command
+                                           :input in-stream
+                                           :output :stream
+                                           :directory *default-pathname-defaults*)))
+      (logd "proc-info:~a" proc-info)
+      proc-info)))
+
+(defun yarn (first-command &rest commands
             &aux
-              last-process-info
+              last-task
               )
   (labels ((rec (commands)
-             (setq last-process-info (pipe1 last-process-info (car commands)))
+             (setq last-task (yarn1 last-task (car commands)))
              (when (cdr commands)
                (rec (cdr commands)))))
     (rec (cons first-command commands)))
-  last-process-info)
-
-(defun pipe1 (in command)
-  (check-type in (or stream null))
-  (when (taskp command) (return-from pipe1 command))
-  (unless (listp command) (setq command (list command)))
-  (let* ((proc-info (uiop:launch-program command :input in :output :stream :directory *default-pathname-defaults*)))
-    proc-info))
-
-#+nil(defun run (first-command &rest commands
-                 &aux
-                   last-process-info
-                   last-process-out)
-       (labels ((rec (commands)
-                  (multiple-value-setq (last-process-out last-process-info)
-                    (pipe1 nil (car commands)))
-                  ;; synchronize. maybe should use `uiop:run-program`.
-                  (when last-process-info (uiop:wait-process last-process-info))
-                  (when (cdr commands)
-                    (rec (cdr commands)))))
-         (rec (cons first-command commands)))
-       (values last-process-out last-process-info))
+  last-task)
 
 (defun slurp (processor task)
   "Processor is the same as the uiop:slurp-sinput-stream's 0th argument.
 :string, t, (the stream x), (the pathname x) and so on."
-  (uiop:slurp-input-stream processor task-stream task))
+  (uiop:slurp-input-stream processor (task-output task)))
 
 (defun logd (&rest args)
   (apply #'format t args)
