@@ -13,49 +13,110 @@
    ))
 (in-package :run)
 
+(defun make-pipe-stream ()
+  #-sbcl(error "sbcl only")
+  #+sbcl
+  (multiple-value-bind (in out) (sb-posix:pipe)
+    (let* ((in (sb-sys:make-fd-stream in :input t :element-type :default))
+           (out (sb-sys:make-fd-stream out :output t :element-type :default))
+           (pipe (make-two-way-stream in out)))
+      pipe)))
+
+;; I want to know a better way.
+(defun make-null-output-stream ()
+  (open "/dev/null" :direction :output :if-exists :append :element-type :default))
+
+
+(defclass thread-task ()
+  ((input :initarg :input :initform nil)
+   (output :initarg :output :initform nil)
+   (thread :initarg :thread :initform nil)
+
+   (wait-cvar :initform (bt:make-condition-variable :name "wait-cbar-thread-task"))
+   (wait-lock :initform (bt:make-lock :name "wait-lock-thread-task"))
+   ))
+
+(deftype task () `(or uiop/launch-program::process-info
+                      thread-task))
+
+;;;;
+
+(defgeneric task-output (task))
+(defgeneric task-wait (task))
+
+;;;;
+
+(defmethod task-output ((task uiop/launch-program::process-info))
+  (uiop:process-info-output task))
+(defmethod task-wait ((task uiop/launch-program::process-info))
+  (uiop:wait-process task))
+
+;;;;
+
+(defmethod task-output ((task thread-task))
+  (slot-value task 'output))
+(defmethod task-wait ((task thread-task))
+  (with-slots (thread wait-cvar wait-lock) task
+    (bt:with-lock-held (wait-lock)
+      (bt:condition-wait wait-cvar wait-lock)
+      (format t ">>wait finish~%"))))
+
+;;;;
+
+(defun close-output-stream (stream)
+  (typecase stream
+    (two-way-stream (close (two-way-stream-output-stream stream)))
+    (t (close stream))))
+
+(defun make-thread-task (fn &key (input *standard-input*) (output (make-pipe-stream)))
+  (let ((task (make-instance 'thread-task :input input :output output)))
+    (setf (slot-value task 'thread)
+          (bt:make-thread (lambda ()
+                            (funcall fn)
+                            (bt:condition-notify (slot-value task 'wait-cvar)))
+                          :initial-bindings `(,@bt:*default-special-bindings*
+                                              (*standard-input* . ,input)
+                                              (*standard-output* . ,output))))
+    ;; bt:*default-special-bindings*
+    task))
+
+
 (defun pipe (first-command &rest commands
             &aux
               last-process-info
-              last-process-out)
+              )
   (labels ((rec (commands)
-             (multiple-value-setq (last-process-out last-process-info)
-               (pipe1 last-process-out (car commands)))
+             (setq last-process-info (pipe1 last-process-info (car commands)))
              (when (cdr commands)
                (rec (cdr commands)))))
     (rec (cons first-command commands)))
-  (values last-process-out last-process-info))
-
-(defun run (first-command &rest commands
-            &aux
-              last-process-info
-              last-process-out)
-  (labels ((rec (commands)
-             (multiple-value-setq (last-process-out last-process-info)
-               (pipe1 nil (car commands)))
-             ;; synchronize. maybe should use `uiop:run-program`.
-             (when last-process-info (uiop:wait-process last-process-info))
-             (when (cdr commands)
-               (rec (cdr commands)))))
-    (rec (cons first-command commands)))
-  (values last-process-out last-process-info))
+  last-process-info)
 
 (defun pipe1 (in command)
   (check-type in (or stream null))
-  (when (streamp command)
-    (return-from pipe1 (values command nil)))
+  (when (taskp command) (return-from pipe1 command))
   (unless (listp command) (setq command (list command)))
-  (let* ((proc-info (uiop:launch-program command :input in :output :stream :directory *default-pathname-defaults*))
-         (proc-out (uiop:process-info-output proc-info)))
-    (values proc-out proc-info)))
+  (let* ((proc-info (uiop:launch-program command :input in :output :stream :directory *default-pathname-defaults*)))
+    proc-info))
 
-(defun to-stream (process)
-  (uiop:process-info-output process))
+#+nil(defun run (first-command &rest commands
+                 &aux
+                   last-process-info
+                   last-process-out)
+       (labels ((rec (commands)
+                  (multiple-value-setq (last-process-out last-process-info)
+                    (pipe1 nil (car commands)))
+                  ;; synchronize. maybe should use `uiop:run-program`.
+                  (when last-process-info (uiop:wait-process last-process-info))
+                  (when (cdr commands)
+                    (rec (cdr commands)))))
+         (rec (cons first-command commands)))
+       (values last-process-out last-process-info))
 
-(defun slurp (processor in)
+(defun slurp (processor task)
   "Processor is the same as the uiop:slurp-sinput-stream's 0th argument.
 :string, t, (the stream x), (the pathname x) and so on."
-  ;;(collect 'string (scan-stream (uiop:process-info-output process) #'read-char))
-  (uiop:slurp-input-stream processor in))
+  (uiop:slurp-input-stream processor task-stream task))
 
 (defun logd (&rest args)
   (apply #'format t args)
@@ -76,14 +137,6 @@
 
 (defun walk (dir fn) (error "wip"))
 
-(defun make-pipe-stream ()
-  #-sbcl(error "sbcl only")
-  #+sbcl
-  (multiple-value-bind (in out) (sb-posix:pipe)
-    (let* ((in (sb-sys:make-fd-stream in :input t :element-type :default))
-           (out (sb-sys:make-fd-stream out :output t :element-type :default))
-           (pipe (make-two-way-stream in out)))
-      pipe)))
 
 
 #+nil(defun pathname-values (pathname)
