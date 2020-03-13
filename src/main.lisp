@@ -2,8 +2,8 @@
   (:use :cl :series)
   (:export
    :yarn
-
    :slurp
+
    :cwd
    :cd
    #+sbcl :make-pipe-stream
@@ -30,7 +30,7 @@
    (thread :initarg :thread :initform nil)
 
    (wait-cvar :initform (bt:make-condition-variable :name "wait-cbar-thread-task"))
-   (wait-lock :initform (bt:make-lock :name "wait-lock-thread-task"))
+   (wait-lock :initform (bt:make-lock "wait-lock-thread-task"))
    ))
 
 (deftype task () `(or uiop/launch-program::process-info
@@ -72,12 +72,16 @@
 (defun make-thread-task (fn &key (input *standard-input*) (output (make-pipe-stream)))
   (let ((task (make-instance 'thread-task :input input :output output)))
     (setf (slot-value task 'thread)
-          (bt:make-thread (lambda ()
-                            (funcall fn)
-                            (bt:condition-notify (slot-value task 'wait-cvar)))
-                          :initial-bindings `(,@bt:*default-special-bindings*
-                                              (*standard-input* . ,input)
-                                              (*standard-output* . ,output))))
+          (bt:make-thread
+           (lambda ()
+             (funcall fn)
+             (bt:condition-notify (slot-value task 'wait-cvar))
+             ;;(finish-output output)
+             (close-output-stream output)
+             )
+           :initial-bindings `(,@bt:*default-special-bindings*
+                               (*standard-input* . ,input)
+                               (*standard-output* . ,output))))
     ;; bt:*default-special-bindings*
     task))
 
@@ -99,7 +103,7 @@
   (let (in-stream)
     (if in
         (setq in-stream (task-output in))
-      (setq in-stream nil))
+      (setq in-stream (open "/dev/null" :element-type :default)))
     
     ;; thread.
     (when (functionp command)
@@ -127,7 +131,7 @@
     (rec (cons first-command commands)))
   last-task)
 
-(defun slurp (processor task)
+(defun slurp (task &optional (processor :lines))
   "Processor is the same as the uiop:slurp-sinput-stream's 0th argument.
 :string, t, (the stream x), (the pathname x) and so on."
   (uiop:slurp-input-stream processor (task-output task)))
